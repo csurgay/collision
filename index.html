@@ -37,7 +37,7 @@
                 angle: r.angle // store angle for handle orientation
             };
         });
-        const midTop = rotatePoint({ x: 0, y: -hh - 30 }, r.angle);
+        const midTop = rotatePoint({ x: 0, y: -hh + 10 }, r.angle);
         return [
             corners[0],
             corners[1],
@@ -164,17 +164,8 @@
             // Draw rotation handle (circle)
             const rot = handles[4];
             ctx.beginPath();
-            ctx.arc(rot.x, rot.y, handleSize / 1.5, 0, Math.PI * 2);
-            ctx.fillStyle = '#2ECC40';
-            ctx.fill();
-            ctx.strokeStyle = '#2ECC40';
-            ctx.stroke();
-
-            // Draw line from top edge to rotation handle
-            ctx.beginPath();
-            ctx.moveTo((handles[0].x + handles[1].x) / 2, (handles[0].y + handles[1].y) / 2);
-            ctx.lineTo(rot.x, rot.y);
-            ctx.strokeStyle = '#2ECC40';
+            ctx.arc(rot.x, rot.y, handleSize / 1.7, 0, Math.PI * 2);
+            ctx.strokeStyle = '#0074D9';
             ctx.stroke();
         });
     }
