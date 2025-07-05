@@ -243,6 +243,25 @@
         draw();
     });
 
+    // Helper for continuous collision detection (CCD)
+    function interpolateAndMoveRect(rect, from, to, updateFn, ignoreIdx) {
+        const steps = 20;
+        let lastValid = { ...from };
+        for (let i = 1; i <= steps; i++) {
+            const t = i / steps;
+            const interp = {};
+            for (const key in from) {
+                interp[key] = from[key] + (to[key] - from[key]) * t;
+            }
+            if (!wouldCollide(interp, ignoreIdx)) {
+                lastValid = { ...interp };
+            } else {
+                break;
+            }
+        }
+        updateFn(lastValid);
+    }
+
     canvas.addEventListener('mousemove', (e) => {
         const rectCanvas = canvas.getBoundingClientRect();
         const mx = e.clientX - rectCanvas.left;
@@ -274,12 +293,19 @@
             newRect.x = newCx - newW / 2;
             newRect.y = newCy - newH / 2;
 
-            if (!wouldCollide(newRect, activeRectIdx)) {
-                rect.w = newW;
-                rect.h = newH;
-                rect.x = newRect.x;
-                rect.y = newRect.y;
-            }
+            // Continuous collision detection
+            interpolateAndMoveRect(
+                rect,
+                { x: rect.x, y: rect.y, w: rect.w, h: rect.h, angle: rect.angle },
+                { x: newRect.x, y: newRect.y, w: newW, h: newH, angle: rect.angle },
+                (lastValid) => {
+                    rect.x = lastValid.x;
+                    rect.y = lastValid.y;
+                    rect.w = lastValid.w;
+                    rect.h = lastValid.h;
+                },
+                activeRectIdx
+            );
             draw();
         } else if (dragging && activeRectIdx !== null) {
             const rect = rects[activeRectIdx];
@@ -296,10 +322,16 @@
                 h: rect.h,
                 angle: rect.angle
             };
-            if (!wouldCollide(newRect, activeRectIdx)) {
-                rect.x = newRect.x;
-                rect.y = newRect.y;
-            }
+            interpolateAndMoveRect(
+                rect,
+                { x: rect.x, y: rect.y, w: rect.w, h: rect.h, angle: rect.angle },
+                { x: newRect.x, y: newRect.y, w: rect.w, h: rect.h, angle: rect.angle },
+                (lastValid) => {
+                    rect.x = lastValid.x;
+                    rect.y = lastValid.y;
+                },
+                activeRectIdx
+            );
             draw();
         } else if (rotating && activeRectIdx !== null) {
             const rect = rects[activeRectIdx];
@@ -308,16 +340,15 @@
             const angle2 = Math.atan2(my - cy, mx - cx);
             const newAngle = rotateStartAngle + (angle2 - angle1);
             // Simulate new rect for collision check
-            const newRect = {
-                x: rect.x,
-                y: rect.y,
-                w: rect.w,
-                h: rect.h,
-                angle: newAngle
-            };
-            if (!wouldCollide(newRect, activeRectIdx)) {
-                rect.angle = newAngle;
-            }
+            interpolateAndMoveRect(
+                rect,
+                { x: rect.x, y: rect.y, w: rect.w, h: rect.h, angle: rect.angle },
+                { x: rect.x, y: rect.y, w: rect.w, h: rect.h, angle: newAngle },
+                (lastValid) => {
+                    rect.angle = lastValid.angle;
+                },
+                activeRectIdx
+            );
             draw();
         } else {
             // Show pointer for any handle/rotation/rect
