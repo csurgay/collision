@@ -50,25 +50,8 @@
         };
     }
 
-    // --- Multiple rectangles support ---
-    const NUM_RECTS = 3;
-    let rects = [];
-    for (let i = 0; i < NUM_RECTS; i++) {
-        rects.push({
-            x: 150 + i * 120,
-            y: 120 + i * 80,
-            w: 180,
-            h: 120,
-            angle: Math.random() * Math.PI * 2
-        });
-    }
-
-    function getHandlesForRect(r) {
-        return getHandles(r);
-    }
-
-    function drawBoundingBox(r) {
-        const handles = getHandlesForRect(r);
+    function getBoundingBox(r) {
+        const handles = getHandles(r);
         const corners = handles.slice(0, 4);
         let minX = corners[0].x, maxX = corners[0].x;
         let minY = corners[0].y, maxY = corners[0].y;
@@ -78,11 +61,60 @@
             minY = Math.min(minY, corners[i].y);
             maxY = Math.max(maxY, corners[i].y);
         }
+        return { minX, minY, maxX, maxY };
+    }
+
+    function boundingBoxesOverlap(a, b) {
+        return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
+    }
+
+    // --- Multiple rectangles support with initial separation ---
+    const NUM_RECTS = 3;
+    let rects = [];
+    const maxTries = 1000;
+    for (let i = 0; i < NUM_RECTS; i++) {
+        let placed = false, tries = 0;
+        while (!placed && tries < maxTries) {
+            tries++;
+            let w = 180, h = 120;
+            let angle = Math.random() * Math.PI * 2;
+            let x = Math.random() * (canvas.width - w - 40) + 20;
+            let y = Math.random() * (canvas.height - h - 40) + 20;
+            let rect = { x, y, w, h, angle };
+            let bbox = getBoundingBox(rect);
+            let overlap = false;
+            for (let j = 0; j < rects.length; j++) {
+                let otherBbox = getBoundingBox(rects[j]);
+                if (boundingBoxesOverlap(bbox, otherBbox)) {
+                    overlap = true;
+                    break;
+                }
+            }
+            if (!overlap) {
+                rects.push(rect);
+                placed = true;
+            }
+        }
+        if (!placed) {
+            // fallback: just place without rotation and with more spacing
+            let w = 180, h = 120;
+            let x = 40 + i * (w + 40);
+            let y = 40 + i * (h + 40);
+            rects.push({ x, y, w, h, angle: 0 });
+        }
+    }
+
+    function getHandlesForRect(r) {
+        return getHandles(r);
+    }
+
+    function drawBoundingBox(r) {
+        const bbox = getBoundingBox(r);
         ctx.save();
         ctx.strokeStyle = '#888';
         ctx.setLineDash([6, 4]);
         ctx.lineWidth = 1;
-        ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+        ctx.strokeRect(bbox.minX, bbox.minY, bbox.maxX - bbox.minX, bbox.maxY - bbox.minY);
         ctx.setLineDash([]);
         ctx.restore();
     }
@@ -162,6 +194,18 @@
         );
     }
 
+    // --- Prevent collision on drag/resize/rotate ---
+
+    function wouldCollide(testRect, ignoreIdx) {
+        const testBox = getBoundingBox(testRect);
+        for (let i = 0; i < rects.length; i++) {
+            if (i === ignoreIdx) continue;
+            const otherBox = getBoundingBox(rects[i]);
+            if (boundingBoxesOverlap(testBox, otherBox)) return true;
+        }
+        return false;
+    }
+
     canvas.addEventListener('mousedown', (e) => {
         const rectCanvas = canvas.getBoundingClientRect();
         const mx = e.clientX - rectCanvas.left;
@@ -220,12 +264,22 @@
             }
             let newW = Math.max(x1 - x0, handleSize * 2);
             let newH = Math.max(y1 - y0, handleSize * 2);
-            rect.w = newW;
-            rect.h = newH;
+
+            // Simulate new rect for collision check
+            const newRect = {
+                x: 0, y: 0, w: newW, h: newH, angle: rect.angle
+            };
             const newCx = cx + ((x0 + x1) / 2) * Math.cos(rect.angle) - ((y0 + y1) / 2) * Math.sin(rect.angle);
             const newCy = cy + ((x0 + x1) / 2) * Math.sin(rect.angle) + ((y0 + y1) / 2) * Math.cos(rect.angle);
-            rect.x = newCx - rect.w / 2;
-            rect.y = newCy - rect.h / 2;
+            newRect.x = newCx - newW / 2;
+            newRect.y = newCy - newH / 2;
+
+            if (!wouldCollide(newRect, activeRectIdx)) {
+                rect.w = newW;
+                rect.h = newH;
+                rect.x = newRect.x;
+                rect.y = newRect.y;
+            }
             draw();
         } else if (dragging && activeRectIdx !== null) {
             const rect = rects[activeRectIdx];
@@ -234,15 +288,36 @@
             const localX = dragOffset.x, localY = dragOffset.y;
             const dx = localX * cos - localY * sin;
             const dy = localX * sin + localY * cos;
-            rect.x = cx - dx - rect.w / 2;
-            rect.y = cy - dy - rect.h / 2;
+            // Simulate new rect for collision check
+            const newRect = {
+                x: cx - dx - rect.w / 2,
+                y: cy - dy - rect.h / 2,
+                w: rect.w,
+                h: rect.h,
+                angle: rect.angle
+            };
+            if (!wouldCollide(newRect, activeRectIdx)) {
+                rect.x = newRect.x;
+                rect.y = newRect.y;
+            }
             draw();
         } else if (rotating && activeRectIdx !== null) {
             const rect = rects[activeRectIdx];
             const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
             const angle1 = Math.atan2(rotateStartMouse.y, rotateStartMouse.x);
             const angle2 = Math.atan2(my - cy, mx - cx);
-            rect.angle = rotateStartAngle + (angle2 - angle1);
+            const newAngle = rotateStartAngle + (angle2 - angle1);
+            // Simulate new rect for collision check
+            const newRect = {
+                x: rect.x,
+                y: rect.y,
+                w: rect.w,
+                h: rect.h,
+                angle: newAngle
+            };
+            if (!wouldCollide(newRect, activeRectIdx)) {
+                rect.angle = newAngle;
+            }
             draw();
         } else {
             // Show pointer for any handle/rotation/rect
