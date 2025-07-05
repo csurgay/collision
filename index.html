@@ -5,11 +5,11 @@
     <title>Collision</title>
 </head>
 <body>
-    <canvas id="collision" width="800" height="600" style="border:1px solid #000;"></canvas>
+    <canvas id="collision" width="1600" height="900" style="border:1px solid #000;"></canvas>
     <script>
     const canvas = document.getElementById('collision');
     const ctx = canvas.getContext('2d');
-    const handleSize = 10;
+    const handleSize = 16;
     let dragging = false;
     let dragOffset = { x: 0, y: 0 };
     let resizing = false;
@@ -22,23 +22,28 @@
     function getHandles(r) {
         const hw = r.w / 2, hh = r.h / 2;
         const cx = r.x + hw, cy = r.y + hh;
+        // Handles are at the inside corners of the rectangle, inset by half handle size
+        const inset = handleSize / 2;
         const corners = [
-            { x: -hw, y: -hh },
-            { x: hw, y: -hh },
-            { x: -hw, y: hh },
-            { x: hw, y: hh }
-        ].map(pt => rotatePoint(pt, r.angle));
-        corners.forEach(pt => {
-            pt.x += cx;
-            pt.y += cy;
+            { x: -hw + inset, y: -hh + inset },
+            { x: hw - inset, y: -hh + inset },
+            { x: hw - inset, y: hh - inset },
+            { x: -hw + inset, y: hh - inset }
+        ].map(pt => {
+            const rotated = rotatePoint(pt, r.angle);
+            return {
+                x: rotated.x + cx,
+                y: rotated.y + cy,
+                angle: r.angle // store angle for handle orientation
+            };
         });
         const midTop = rotatePoint({ x: 0, y: -hh - 30 }, r.angle);
         return [
             corners[0],
             corners[1],
-            corners[2],
+            corners[2], // order matches corners
             corners[3],
-            { x: cx + midTop.x, y: cy + midTop.y }
+            { x: cx + midTop.x, y: cy + midTop.y, angle: 0 }
         ];
     }
 
@@ -51,8 +56,18 @@
     }
 
     function getBoundingBox(r) {
-        const handles = getHandles(r);
-        const corners = handles.slice(0, 4);
+        // Get the four actual corners of the rotated rectangle
+        const hw = r.w / 2, hh = r.h / 2;
+        const cx = r.x + hw, cy = r.y + hh;
+        const corners = [
+            { x: -hw, y: -hh },
+            { x: hw, y: -hh },
+            { x: hw, y: hh },
+            { x: -hw, y: hh }
+        ].map(pt => {
+            const rotated = rotatePoint(pt, r.angle);
+            return { x: rotated.x + cx, y: rotated.y + cy };
+        });
         let minX = corners[0].x, maxX = corners[0].x;
         let minY = corners[0].y, maxY = corners[0].y;
         for (let i = 1; i < 4; i++) {
@@ -63,13 +78,12 @@
         }
         return { minX, minY, maxX, maxY };
     }
-
     function boundingBoxesOverlap(a, b) {
         return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
     }
 
     // --- Multiple rectangles support with initial separation ---
-    const NUM_RECTS = 3;
+    const NUM_RECTS = 7;
     let rects = [];
     const maxTries = 1000;
     for (let i = 0; i < NUM_RECTS; i++) {
@@ -133,18 +147,19 @@
             ctx.strokeRect(-rect.w / 2, -rect.h / 2, rect.w, rect.h);
             ctx.restore();
 
-            ctx.fillStyle = '#FF4136';
-            ctx.strokeStyle = '#FF4136';
+            // Draw handles as small wireframe squares at the corners, oriented with the rectangle
+            ctx.strokeStyle = '#0074D9';
+            ctx.lineWidth = 2;
             const handles = getHandlesForRect(rect);
             for (let i = 0; i < 4; i++) {
                 const h = handles[i];
+                ctx.save();
+                ctx.translate(h.x, h.y);
+                ctx.rotate(h.angle);
                 ctx.beginPath();
-                ctx.moveTo(h.x - handleSize / 2, h.y);
-                ctx.quadraticCurveTo(h.x, h.y - handleSize / 2, h.x + handleSize / 2, h.y);
-                ctx.quadraticCurveTo(h.x, h.y + handleSize / 2, h.x - handleSize / 2, h.y);
-                ctx.closePath();
-                ctx.fill();
+                ctx.rect(-handleSize / 2, -handleSize / 2, handleSize, handleSize);
                 ctx.stroke();
+                ctx.restore();
             }
             // Draw rotation handle (circle)
             const rot = handles[4];
@@ -152,6 +167,7 @@
             ctx.arc(rot.x, rot.y, handleSize / 1.5, 0, Math.PI * 2);
             ctx.fillStyle = '#2ECC40';
             ctx.fill();
+            ctx.strokeStyle = '#2ECC40';
             ctx.stroke();
 
             // Draw line from top edge to rotation handle
@@ -167,11 +183,16 @@
         const handles = getHandlesForRect(rect);
         for (let i = 0; i < 4; i++) {
             const h = handles[i];
+            // Transform mouse point into handle's local space (rotated)
+            const dx = mx - h.x, dy = my - h.y;
+            const cos = Math.cos(-h.angle), sin = Math.sin(-h.angle);
+            const lx = dx * cos - dy * sin;
+            const ly = dx * sin + dy * cos;
             if (
-                mx >= h.x - handleSize &&
-                mx <= h.x + handleSize &&
-                my >= h.y - handleSize &&
-                my <= h.y + handleSize
+                lx >= -handleSize / 2 &&
+                lx <= handleSize / 2 &&
+                ly >= -handleSize / 2 &&
+                ly <= handleSize / 2
             ) {
                 return i;
             }
@@ -278,8 +299,8 @@
             switch (activeHandle) {
                 case 0: x0 = lx; y0 = ly; break;
                 case 1: x1 = lx; y0 = ly; break;
-                case 2: x0 = lx; y1 = ly; break;
-                case 3: x1 = lx; y1 = ly; break;
+                case 2: x1 = lx; y1 = ly; break;
+                case 3: x0 = lx; y1 = ly; break;
             }
             let newW = Math.max(x1 - x0, handleSize * 2);
             let newH = Math.max(y1 - y0, handleSize * 2);
