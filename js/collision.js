@@ -17,7 +17,7 @@ function interpolateAndMoveRect(rect, from, to, updateFn, ignoreIdx) {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const distance = Math.sqrt(dx * dx + dy * dy); // Calculate distance between from and to
-    if (distance < 20) {
+    if (distance < 0) { // always binary
         interpolateAndMoveRectLinear(rect, from, to, updateFn, ignoreIdx);
     } else {
         interpolateAndMoveRectBinary(rect, from, to, updateFn, ignoreIdx);
@@ -71,7 +71,7 @@ function interpolateAndMoveRectBinary(rect, from, to, updateFn, ignoreIdx) {
             hi = mid;
         }
         // Optional: break if the move is less than 1 pixel
-        if (distance(from, interp) < 1) break;
+        if (distance(from, interp) < 0.1) break;
     }
     updateFn(best);
 }
